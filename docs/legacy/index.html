@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - 简物</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #1a1a1a;
+            --accent: #c9a87c;
+            --bg: #faf9f7;
+            --white: #ffffff;
+            --gray: #888888;
+            --light-gray: #e8e6e3;
+            --radius: 8px;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            color: var(--primary);
+            background: var(--bg);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .card {
+            background: var(--white);
+            border-radius: var(--radius);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.06);
+            padding: 48px 40px;
+        }
+
+        .logo {
+            text-align: center;
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            letter-spacing: -1px;
+        }
+
+        .logo span {
+            color: var(--accent);
+        }
+
+        .subtitle {
+            text-align: center;
+            color: var(--gray);
+            font-size: 14px;
+            margin-bottom: 36px;
+        }
+
+        /* ===== 头像上传 ===== */
+        .avatar-upload {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+
+        .avatar-preview {
+            width: 84px;
+            height: 84px;
+            border-radius: 50%;
+            background: var(--bg);
+            border: 2px dashed var(--light-gray);
+            margin: 0 auto 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            color: var(--gray);
+            cursor: pointer;
+            overflow: hidden;
+            transition: border-color 0.2s;
+            position: relative;
+        }
+
+        .avatar-preview:hover {
+            border-color: var(--accent);
+        }
+
+        .avatar-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .avatar-upload input[type="file"] {
+            display: none;
+        }
+
+        .avatar-upload .hint {
+            font-size: 13px;
+            color: var(--gray);
+        }
+
+        /* ===== Tab 切换 ===== */
+        .tabs {
+            display: flex;
+            margin-bottom: 32px;
+            border-bottom: 2px solid var(--light-gray);
+        }
+
+        .tab {
+            flex: 1;
+            text-align: center;
+            padding: 12px 0;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--gray);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+
+        .tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1.5px solid var(--light-gray);
+            border-radius: var(--radius);
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.2s;
+            background: var(--bg);
+        }
+
+        .form-group input:focus {
+            border-color: var(--accent);
+            background: var(--white);
+        }
+
+        .form-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            margin-bottom: 24px;
+        }
+
+        .checkbox-wrap {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--gray);
+            cursor: pointer;
+        }
+
+        .checkbox-wrap input {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--primary);
+            cursor: pointer;
+        }
+
+        .link {
+            color: var(--primary);
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .link:hover {
+            color: var(--accent);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 14px;
+            background: var(--primary);
+            color: var(--white);
+            border: none;
+            border-radius: var(--radius);
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            background: var(--accent);
+        }
+
+        .divider {
+            text-align: center;
+            margin: 28px 0;
+            position: relative;
+            font-size: 13px;
+            color: var(--gray);
+        }
+
+        .divider::before,
+        .divider::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            width: 40%;
+            height: 1px;
+            background: var(--light-gray);
+        }
+
+        .divider::before { left: 0; }
+        .divider::after { right: 0; }
+
+        .social-login {
+            display: flex;
+            gap: 12px;
+        }
+
+        .social-btn {
+            flex: 1;
+            padding: 12px;
+            border: 1.5px solid var(--light-gray);
+            border-radius: var(--radius);
+            background: var(--white);
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .social-btn:hover {
+            border-color: var(--primary);
+            background: var(--bg);
+        }
+
+        .form-panel { display: none; }
+        .form-panel.active { display: block; }
+
+        .terms {
+            text-align: center;
+            font-size: 12px;
+            color: var(--gray);
+            margin-top: 24px;
+        }
+
+        .terms a {
+            color: var(--primary);
+            text-decoration: underline;
+        }
+
+        @media (max-width: 480px) {
+            .card { padding: 36px 24px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="card">
+            <div class="logo">简<span>物</span></div>
+            <p class="subtitle">回归生活的本质</p>
+
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('login')">登录</div>
+                <div class="tab" onclick="switchTab('register')">注册</div>
+            </div>
+
+            <!-- 登录表单 -->
+            <div class="form-panel active" id="login-panel">
+                <form onsubmit="handleLogin(event)">
+                    <div class="form-group">
+                        <label>账号</label>
+                        <input type="text" placeholder="请输入账号" id="login-account" required>
+                    </div>
+                    <div class="form-group">
+                        <label>密码</label>
+                        <input type="password" placeholder="请输入密码" id="login-password" required>
+                    </div>
+                    <div class="form-row">
+                        <label class="checkbox-wrap">
+                            <input type="checkbox" id="remember">
+                            <span>记住我</span>
+                        </label>
+                        <span class="link" onclick="alert('请通过绑定的手机号重置密码')">忘记密码？</span>
+                    </div>
+                    <button type="submit" class="btn">登 录</button>
+                </form>
+
+                <div class="divider">其他方式</div>
+                <div class="social-login">
+                    <div class="social-btn" onclick="alert('微信登录')">&#128172; 微信</div>
+                    <div class="social-btn" onclick="alert('支付宝登录')">&#128241; 支付宝</div>
+                </div>
+            </div>
+
+            <!-- 注册表单 -->
+            <div class="form-panel" id="register-panel">
+                <form onsubmit="handleRegister(event)">
+                    <!-- 头像上传 -->
+                    <div class="avatar-upload">
+                        <div class="avatar-preview" id="avatar-preview" onclick="document.getElementById('avatar-input').click()">
+                            &#128100;
+                        </div>
+                        <input type="file" id="avatar-input" accept="image/*" onchange="previewAvatar(this)">
+                        <p class="hint">点击上传头像（可选）</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label>账号</label>
+                        <input type="text" placeholder="请设置账号" id="reg-account" required>
+                    </div>
+                    <div class="form-group">
+                        <label>密码</label>
+                        <input type="password" placeholder="请设置密码" id="reg-password" required>
+                    </div>
+                    <div class="form-group">
+                        <label>确认密码</label>
+                        <input type="password" placeholder="请再次输入密码" id="reg-password2" required>
+                    </div>
+                    <button type="submit" class="btn">注 册</button>
+                </form>
+            </div>
+
+            <p class="terms">登录或注册即代表同意 <a href="#">服务条款</a> 与 <a href="#">隐私政策</a></p>
+        </div>
+    </div>
+
+    <script>
+        // Tab 切换
+        function switchTab(type) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.form-panel').forEach(p => p.classList.remove('active'));
+
+            if (type === 'login') {
+                document.querySelectorAll('.tab')[0].classList.add('active');
+                document.getElementById('login-panel').classList.add('active');
+            } else {
+                document.querySelectorAll('.tab')[1].classList.add('active');
+                document.getElementById('register-panel').classList.add('active');
+            }
+        }
+
+        // 头像预览
+        function previewAvatar(input) {
+            var preview = document.getElementById('avatar-preview');
+            if (input.files && input.files[0]) {
+                var reader = new FileReader();
+                reader.onload = function(e) {
+                    preview.innerHTML = '<img src="' + e.target.result + '" alt="头像">';
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        // 登录
+        function handleLogin(e) {
+            e.preventDefault();
+            var account = document.getElementById('login-account').value;
+            var pwd = document.getElementById('login-password').value;
+            if (account && pwd) {
+                alert('登录成功！欢迎回来。');
+            }
+        }
+
+        // 注册
+        function handleRegister(e) {
+            e.preventDefault();
+            var pwd = document.getElementById('reg-password').value;
+            var pwd2 = document.getElementById('reg-password2').value;
+            if (pwd !== pwd2) {
+                alert('两次密码输入不一致');
+                return;
+            }
+            alert('注册成功！请登录。');
+            switchTab('login');
+        }
+    </script>
+
+</body>
+</html>

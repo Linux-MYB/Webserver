@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登录 · 简物</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/shop.css">
+<style>
+    body { display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .auth { width: 100%; max-width: 420px; }
+    .auth-card {
+        background: var(--white);
+        border-radius: var(--radius);
+        box-shadow: 0 4px 40px rgba(0, 0, 0, .06);
+        padding: 46px 40px 38px;
+    }
+    .logo { text-align: center; font-size: 30px; font-weight: 700; letter-spacing: 6px; }
+    .logo span { color: var(--accent); }
+    .subtitle { text-align: center; color: var(--gray); font-size: 13px; letter-spacing: 2px; margin: 8px 0 34px; }
+
+    .tabs { display: flex; border-bottom: 2px solid var(--light); margin-bottom: 28px; }
+    .tab {
+        flex: 1; text-align: center; padding: 12px 0; font-size: 15px;
+        color: var(--gray); cursor: pointer; border-bottom: 2px solid transparent;
+        margin-bottom: -2px; transition: color .2s, border-color .2s; letter-spacing: 2px;
+    }
+    .tab.active { color: var(--ink); border-bottom-color: var(--accent); }
+
+    .field { margin-bottom: 20px; }
+    .field label { display: block; font-size: 13px; color: var(--gray); margin-bottom: 8px; letter-spacing: 1px; }
+    .field input {
+        width: 100%; padding: 13px 14px; font-size: 15px; color: var(--ink);
+        background: var(--bg); border: 1px solid transparent; border-radius: 6px;
+        outline: none; transition: border-color .2s, background .2s;
+    }
+    .field input:focus { border-color: var(--accent); background: var(--white); }
+
+    .btn { width: 100%; margin-top: 6px; padding: 14px; }
+
+    .msg { min-height: 20px; margin-top: 16px; font-size: 13px; text-align: center; color: #c0392b; }
+    .msg.ok { color: #2e7d32; }
+
+    .terms { text-align: center; font-size: 12px; color: var(--gray); margin-top: 26px; line-height: 1.8; }
+    .terms a { text-decoration: underline; }
+
+    /* 已登录提示条：只是提示，不挡住下面的登录/注册 */
+    .session-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        background: #f4f1ec;
+        border-radius: 8px;
+        padding: 10px 14px;
+        font-size: 13px;
+        color: var(--accent-dark);
+        margin-bottom: 22px;
+    }
+    .session-bar .session-actions { display: flex; align-items: center; gap: 14px; }
+    .session-bar a,
+    .session-bar button {
+        background: none;
+        border: none;
+        padding: 0;
+        font-size: 13px;
+        font-family: inherit;
+        color: var(--ink);
+        text-decoration: underline;
+        cursor: pointer;
+    }
+    .session-bar a:hover,
+    .session-bar button:hover { color: var(--accent-dark); }
+</style>
+</head>
+<body>
+
+<div class="auth">
+    <!-- 一级页面 · 未登录：登录 / 注册 -->
+    <div class="auth-card" id="auth-box">
+        <div class="logo">简<span>物</span></div>
+        <p class="subtitle">回归生活的本味</p>
+
+        <!-- 已登录时显示，不影响下面的登录/注册表单 -->
+        <div class="session-bar hidden" id="session-bar">
+            <span id="session-text"></span>
+            <span class="session-actions">
+                <a href="/search.html" id="go-shop">去逛商品</a>
+                <button type="button" id="logout-btn">注销</button>
+            </span>
+        </div>
+
+        <div class="tabs">
+            <div class="tab active" data-tab="login">登 录</div>
+            <div class="tab" data-tab="register">注 册</div>
+        </div>
+
+        <form id="login-form">
+            <div class="field">
+                <label>账号</label>
+                <input type="text" id="login-account" placeholder="请输入账号" autocomplete="username" required>
+            </div>
+            <div class="field">
+                <label>密码</label>
+                <input type="password" id="login-password" placeholder="请输入密码" autocomplete="current-password" required>
+            </div>
+            <button type="submit" class="btn" id="login-btn">登 录</button>
+        </form>
+
+        <form id="register-form" class="hidden">
+            <div class="field">
+                <label>账号</label>
+                <input type="text" id="reg-account" placeholder="3-32 位字母/数字/下划线" required>
+            </div>
+            <div class="field">
+                <label>密码</label>
+                <input type="password" id="reg-password" placeholder="至少 6 位" autocomplete="new-password" required>
+            </div>
+            <div class="field">
+                <label>确认密码</label>
+                <input type="password" id="reg-password2" placeholder="再输入一次" autocomplete="new-password" required>
+            </div>
+            <button type="submit" class="btn" id="reg-btn">注 册</button>
+        </form>
+
+        <div class="msg" id="msg"></div>
+
+        <p class="terms">登录或注册即代表同意<br><a href="#">服务条款</a> 与 <a href="#">隐私政策</a></p>
+    </div>
+</div>
+
+<script>
+(function () {
+    var bar = document.getElementById('session-bar');
+
+    async function apiGet(path) {
+        var res = await fetch(path, { credentials: 'same-origin' });
+        return res.json();
+    }
+
+    async function apiPost(path, body) {
+        var res = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify(body || {})
+        });
+        return res.json();
+    }
+
+    /* ---------------- 登录 / 注册 ---------------- */
+    var msgEl = document.getElementById('msg');
+
+    function showMsg(text, ok) {
+        msgEl.textContent = text || '';
+        msgEl.className = 'msg' + (ok ? ' ok' : '');
+    }
+
+    function switchTab(name) {
+        document.querySelectorAll('.tab').forEach(function (t) {
+            t.classList.toggle('active', t.dataset.tab === name);
+        });
+        document.getElementById('login-form').classList.toggle('hidden', name !== 'login');
+        document.getElementById('register-form').classList.toggle('hidden', name !== 'register');
+        showMsg('');
+    }
+
+    document.querySelectorAll('.tab').forEach(function (t) {
+        t.addEventListener('click', function () { switchTab(t.dataset.tab); });
+    });
+
+    document.getElementById('login-form').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        var btn = document.getElementById('login-btn');
+        var account = document.getElementById('login-account').value.trim();
+        var password = document.getElementById('login-password').value;
+
+        btn.disabled = true;
+        btn.textContent = '登录中…';
+
+        try {
+            var r = await apiPost('/api/login', { account: account, password: password });
+            if (r.code === 0) {
+                showMsg('登录成功，正在进入…', true);
+                setTimeout(function () { location.href = '/search.html'; }, 300);
+            } else {
+                showMsg(r.msg || '登录失败');
+            }
+        } catch (err) {
+            showMsg('网络错误，请确认服务器已启动');
+        }
+
+        btn.disabled = false;
+        btn.textContent = '登 录';
+    });
+
+    document.getElementById('register-form').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        var btn = document.getElementById('reg-btn');
+        var account = document.getElementById('reg-account').value.trim();
+        var p1 = document.getElementById('reg-password').value;
+        var p2 = document.getElementById('reg-password2').value;
+
+        if (p1 !== p2) { showMsg('两次密码输入不一致'); return; }
+        if (p1.length < 6) { showMsg('密码至少 6 位'); return; }
+
+        btn.disabled = true;
+        btn.textContent = '提交中…';
+
+        try {
+            var r = await apiPost('/api/register', { account: account, password: p1 });
+            if (r.code === 0) {
+                showMsg('注册成功，请登录', true);
+                document.getElementById('reg-password').value = '';
+                document.getElementById('reg-password2').value = '';
+                setTimeout(function () {
+                    switchTab('login');
+                    document.getElementById('login-account').value = account;
+                    document.getElementById('login-password').focus();
+                }, 600);
+            } else {
+                showMsg(r.msg || '注册失败');
+            }
+        } catch (err) {
+            showMsg('网络错误，请确认服务器已启动');
+        }
+
+        btn.disabled = false;
+        btn.textContent = '注 册';
+    });
+
+    /* ---------------- 注销 ---------------- */
+    document.getElementById('logout-btn').addEventListener('click', async function () {
+        var btn = document.getElementById('logout-btn');
+
+        btn.disabled = true;
+        await apiPost('/api/logout', {});
+
+        bar.classList.add('hidden');
+        btn.disabled = false;
+        showMsg('已注销，可以换个账号登录', true);
+    });
+
+    /* ---------------- 启动 ---------------- */
+    (async function boot() {
+        document.getElementById('login-account').focus();
+
+        /* 有会话时只在顶部提示一句，登录表单照常显示，方便切换账号 */
+        try {
+            var r = await apiGet('/api/me');
+
+            if (r.code === 0 && r.data) {
+                var who = r.data.nickname || r.data.account;
+
+                document.getElementById('session-text').textContent =
+                    '当前已登录：' + who + '（' + r.data.account + '）';
+                bar.classList.remove('hidden');
+            }
+        } catch (err) { /* 服务没启动时只显示登录表单 */ }
+    })();
+})();
+</script>
+</body>
+</html>

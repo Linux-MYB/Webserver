@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>搜索商品 · 简物</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/shop.css">
+</head>
+<body>
+
+<header class="topbar">
+    <div class="topbar-inner">
+        <a class="brand" href="/search.html">简<span>物</span></a>
+        <nav class="nav">
+            <a class="navlink active" href="/search.html">搜索</a>
+            <a class="navlink" href="/shop.html">购物车 / 订单</a>
+        </nav>
+        <div class="topbar-right">
+            <span id="user-nick"></span>
+            <button class="btn btn-ghost btn-sm" id="logout-btn">退出</button>
+        </div>
+    </div>
+</header>
+
+<main class="wrap">
+    <section class="hero">
+        <h1>搜你想找的</h1>
+        <p>输入商品名、品牌或分类，比如「诺基亚」「耳机」</p>
+
+        <form class="bigsearch" id="search-form">
+            <input type="search" id="kw" placeholder="搜索商品…" autocomplete="off" autofocus>
+            <button class="btn" type="submit">搜 索</button>
+        </form>
+    </section>
+
+    <div class="section-title">
+        <h2>热门搜索</h2>
+        <span>大家最近在找</span>
+    </div>
+    <div class="chips" id="hot-chips"></div>
+
+    <div class="section-title">
+        <h2>按分类逛</h2>
+        <span id="cat-total"></span>
+    </div>
+    <div class="chips" id="cat-chips"></div>
+
+    <div class="section-title">
+        <h2>推荐商品</h2>
+        <span>先看看大家在买什么</span>
+    </div>
+    <div class="grid" id="rec-grid"></div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+    'use strict';
+
+    var $ = function (id) { return document.getElementById(id); };
+
+    var HOT = ['诺基亚', '摩托罗拉', '耳机', '充电器', '内存卡', '充值卡'];
+
+    var toastTimer = null;
+    function toast(text) {
+        var el = $('toast');
+        el.textContent = text;
+        el.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () { el.classList.remove('show'); }, 1800);
+    }
+
+    async function apiGet(path) {
+        var res = await fetch(path, { credentials: 'same-origin' });
+        return res.json();
+    }
+
+    async function apiPost(path, body) {
+        var res = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify(body || {})
+        });
+        return res.json();
+    }
+
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function money(cents) {
+        return (cents / 100).toFixed(2);
+    }
+
+    function cardHtml(p) {
+        var url = '/detail.html?id=' + p.id;
+        var meta = [p.brand, p.category].filter(Boolean).join(' · ');
+
+        return '' +
+            '<article class="card">' +
+                '<a class="pic" href="' + url + '">' +
+                    (p.thumb
+                        ? '<img src="' + esc(p.thumb) + '" alt="" loading="lazy" ' +
+                          'onerror="this.style.opacity=0">'
+                        : '<div class="noimg">暂无图片</div>') +
+                '</a>' +
+                '<div class="card-body">' +
+                    '<a class="card-name" href="' + url + '" style="text-decoration:none">' +
+                        esc(p.name) + '</a>' +
+                    '<div class="card-meta">' + esc(meta || '未分类') + '</div>' +
+                    '<div class="card-foot">' +
+                        '<div class="price">' + money(p.price) + '</div>' +
+                        '<span class="stock">' + (p.stock > 0 ? '库存 ' + p.stock : '已售罄') + '</span>' +
+                    '</div>' +
+                '</div>' +
+            '</article>';
+    }
+
+    /* ---------------- 搜索提交 ---------------- */
+    function gotoResults(params) {
+        var qs = [];
+        Object.keys(params).forEach(function (k) {
+            if (params[k]) qs.push(k + '=' + encodeURIComponent(params[k]));
+        });
+        location.href = '/results.html' + (qs.length ? '?' + qs.join('&') : '');
+    }
+
+    $('search-form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var kw = $('kw').value.trim();
+        if (!kw) { toast('先输入点什么'); return; }
+        gotoResults({ kw: kw });
+    });
+
+    /* ---------------- 热门词 ---------------- */
+    $('hot-chips').innerHTML = HOT.map(function (w) {
+        return '<a class="chip" href="/results.html?kw=' + encodeURIComponent(w) + '">' + esc(w) + '</a>';
+    }).join('');
+
+    /* ---------------- 分类 ---------------- */
+    async function loadCategories() {
+        var r = await apiGet('/api/categories');
+        if (r.code !== 0 || !r.data) return;
+
+        var list = r.data.items || [];
+        $('cat-total').textContent = '共 ' + r.data.count + ' 个分类';
+
+        if (!list.length) {
+            $('cat-chips').innerHTML = '<span class="card-meta">暂时没有分类</span>';
+            return;
+        }
+
+        $('cat-chips').innerHTML = list.map(function (c) {
+            return '<a class="chip" href="/results.html?cat=' + encodeURIComponent(c.name) + '">' +
+                     esc(c.name) + '<b>' + c.count + '</b></a>';
+        }).join('');
+    }
+
+    /* ---------------- 推荐商品 ---------------- */
+    async function loadRecommended() {
+        var r = await apiGet('/api/products?sort=hot&size=8');
+
+        if (r.code !== 0 || !r.data) return;
+
+        var items = r.data.items || [];
+
+        if (!items.length) {
+            $('rec-grid').innerHTML = '<div class="empty" style="grid-column:1/-1">还没有商品</div>';
+            return;
+        }
+
+        $('rec-grid').innerHTML = items.map(cardHtml).join('');
+    }
+
+    /* ---------------- 登录态 ---------------- */
+    async function boot() {
+        var r = await apiGet('/api/me');
+
+        if (r.code !== 0) { location.href = '/'; return; }
+
+        $('user-nick').textContent = r.data.nickname || r.data.account;
+
+        $('logout-btn').addEventListener('click', async function () {
+            await apiPost('/api/logout', {});
+            location.href = '/';
+        });
+
+        await loadCategories();
+        await loadRecommended();
+    }
+
+    boot();
+})();
+</script>
+</body>
+</html>

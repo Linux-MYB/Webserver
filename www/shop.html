@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>简物 · 商店</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/shop.css">
+</head>
+<body>
+
+<header class="topbar">
+    <div class="topbar-inner">
+        <div class="brand">简<span>物</span></div>
+        <nav class="nav">
+            <a class="navlink" href="/search.html">搜索</a>
+            <button data-view="products" class="active">全部商品</button>
+            <button data-view="cart">购物车<span id="cart-badge"></span></button>
+            <button data-view="orders">订单</button>
+        </nav>
+        <div class="topbar-right">
+            <span id="user-nick"></span>
+            <button class="btn btn-ghost btn-sm" id="logout-btn">退出</button>
+        </div>
+    </div>
+</header>
+
+<main class="wrap">
+    <!-- 商品 -->
+    <section id="view-products">
+        <div class="page-head">
+            <h1 id="product-title">全部商品</h1>
+            <p id="product-hint">挑几件让日子慢下来的小东西</p>
+        </div>
+        <div class="searchbar">
+            <input type="search" id="search-input" placeholder="搜索名称、材质、分类…" autocomplete="off">
+            <button class="btn btn-sm" id="search-btn">搜索</button>
+            <button class="btn btn-ghost btn-sm hidden" id="clear-btn">清空</button>
+        </div>
+        <div class="grid" id="product-grid"></div>
+    </section>
+
+    <!-- 购物车 -->
+    <section id="view-cart" class="hidden">
+        <div class="page-head">
+            <h1>购物车</h1>
+            <p id="cart-hint"></p>
+        </div>
+        <div id="cart-box"></div>
+    </section>
+
+    <!-- 订单 -->
+    <section id="view-orders" class="hidden">
+        <div class="page-head">
+            <h1>我的订单</h1>
+            <p>每一次下单都算数</p>
+        </div>
+        <div id="order-box"></div>
+    </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+    'use strict';
+
+    var state = {
+        me: null,
+        products: [],
+        keyword: '',
+        cart: { items: [], total: 0, count: 0 }
+    };
+
+    var $ = function (id) { return document.getElementById(id); };
+
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function money(cents) {
+        return (cents / 100).toFixed(2);
+    }
+
+    var toastTimer = null;
+    function toast(text) {
+        var el = $('toast');
+        el.textContent = text;
+        el.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () { el.classList.remove('show'); }, 1800);
+    }
+
+    async function apiGet(path) {
+        var res = await fetch(path, { credentials: 'same-origin' });
+        return res.json();
+    }
+
+    async function apiPost(path, body) {
+        var res = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify(body || {})
+        });
+        return res.json();
+    }
+
+    /* ---------------- 视图切换 ---------------- */
+    function show(view) {
+        ['products', 'cart', 'orders'].forEach(function (v) {
+            $('view-' + v).classList.toggle('hidden', v !== view);
+        });
+        document.querySelectorAll('.nav button').forEach(function (b) {
+            b.classList.toggle('active', b.dataset.view === view);
+        });
+        if (view === 'cart') loadCart();
+        if (view === 'orders') loadOrders();
+    }
+
+    document.querySelectorAll('.nav button').forEach(function (b) {
+        b.addEventListener('click', function () { show(b.dataset.view); });
+    });
+
+    /* ---------------- 商品 ---------------- */
+    function renderProducts(list) {
+        var grid = $('product-grid');
+
+        if (!list.length) {
+            var tip = state.keyword
+                ? '没有找到「' + esc(state.keyword) + '」相关的商品'
+                : '暂时没有商品';
+            grid.innerHTML = '<div class="empty"><div class="big">🔍</div>' + tip +
+                             '<div style="margin-top:16px"><button class="btn btn-ghost btn-sm" id="reset-search">看看全部</button></div></div>';
+            var rb = $('reset-search');
+            if (rb) rb.addEventListener('click', function () { doSearch(''); });
+            return;
+        }
+
+        grid.innerHTML = list.map(function (p) {
+            var sold = p.stock <= 0;
+            return '' +
+                '<div class="product">' +
+                    '<div class="thumb">' +
+                        (p.thumb
+                            ? '<img src="' + esc(p.thumb) + '" alt="" onerror="this.parentNode.textContent=\'暂无图片\'">'
+                            : (p.emoji || '<span style="color:#b9b2a6;font-size:12px">暂无图片</span>')) +
+                    '</div>' +
+                    '<div class="product-body">' +
+                        '<div class="product-name">' + esc(p.name) + '</div>' +
+                        '<div class="product-sub">' + esc(p.subtitle) + '</div>' +
+                        '<div class="product-foot">' +
+                            '<div>' +
+                                '<div class="price">' + money(p.price) + '</div>' +
+                                '<div class="stock' + (sold ? ' out' : '') + '">' +
+                                    (sold ? '已售罄' : '库存 ' + p.stock) +
+                                '</div>' +
+                            '</div>' +
+                            '<button class="btn btn-sm" data-add="' + p.id + '"' +
+                                (sold ? ' disabled' : '') + '>加入购物车</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+        }).join('');
+
+        grid.querySelectorAll('[data-add]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                addToCart(parseInt(btn.dataset.add, 10));
+            });
+        });
+    }
+
+    async function loadProducts(keyword) {
+        var kw = keyword || '';
+        var url = '/api/products';
+
+        if (kw) url += '?keyword=' + encodeURIComponent(kw);
+
+        var r = await apiGet(url);
+
+        if (r.code !== 0 || !r.data) {
+            toast(r.msg || '加载商品失败');
+            return;
+        }
+
+        state.keyword = kw;
+        state.products = r.data.items;
+
+        $('product-title').textContent = kw ? ('搜索：' + kw) : '全部商品';
+        $('product-hint').textContent = kw
+            ? ('找到 ' + r.data.count + ' 件商品')
+            : '挑几件让日子慢下来的小东西';
+
+        $('clear-btn').classList.toggle('hidden', !kw);
+
+        renderProducts(state.products);
+    }
+
+    function doSearch(kw) {
+        $('search-input').value = kw || '';
+        loadProducts(kw);
+    }
+
+    async function addToCart(id) {
+        var r = await apiPost('/api/cart/add', { product_id: id, qty: 1 });
+        if (r.code === 0) {
+            applyCart(r.data);
+            toast('已加入购物车');
+        } else if (r.code === 401) {
+            location.href = '/';
+        } else {
+            toast(r.msg || '操作失败');
+        }
+    }
+
+    /* ---------------- 购物车 ---------------- */
+    function applyCart(data) {
+        if (!data) return;
+        state.cart = data;
+        var badge = $('cart-badge');
+        badge.textContent = data.count > 0 ? ' · ' + data.count : '';
+        renderCartBadgeOnly();
+        renderCart();
+    }
+
+    function renderCartBadgeOnly() {
+        if (!$('view-cart').classList.contains('hidden')) return;
+    }
+
+    function renderCart() {
+        var box = $('cart-box');
+        var c = state.cart;
+
+        $('cart-hint').textContent = c.count > 0 ? ('共 ' + c.count + ' 种商品') : '';
+
+        if (!c.items || !c.items.length) {
+            box.innerHTML = '<div class="empty"><div class="big">🛒</div>购物车还是空的' +
+                            '<div style="margin-top:16px"><button class="btn btn-ghost btn-sm" id="go-shop">去逛逛</button></div></div>';
+            var g = $('go-shop');
+            if (g) g.addEventListener('click', function () { show('products'); });
+            return;
+        }
+
+        var rows = c.items.map(function (it) {
+            return '' +
+                '<div class="cart-row">' +
+                    '<div class="cart-thumb">' + esc(it.emoji) + '</div>' +
+                    '<div class="cart-info">' +
+                        '<h4>' + esc(it.name) + '</h4>' +
+                        '<div class="price">' + money(it.price) + '</div>' +
+                    '</div>' +
+                    '<div class="qty">' +
+                        '<button data-dec="' + it.product_id + '">−</button>' +
+                        '<span>' + it.qty + '</span>' +
+                        '<button data-inc="' + it.product_id + '">+</button>' +
+                    '</div>' +
+                    '<div class="cart-sub price">' + money(it.price * it.qty) + '</div>' +
+                    '<button class="link-danger" data-del="' + it.product_id + '">删除</button>' +
+                '</div>';
+        }).join('');
+
+        box.innerHTML =
+            '<div class="cart-list">' + rows + '</div>' +
+            '<div class="checkout-bar">' +
+                '<div class="sum">合计 <b>¥' + money(c.total) + '</b></div>' +
+                '<button class="btn" id="checkout-btn">去结算</button>' +
+            '</div>';
+
+        box.querySelectorAll('[data-inc]').forEach(function (b) {
+            b.addEventListener('click', function () { changeQty(parseInt(b.dataset.inc, 10), 1); });
+        });
+        box.querySelectorAll('[data-dec]').forEach(function (b) {
+            b.addEventListener('click', function () { changeQty(parseInt(b.dataset.dec, 10), -1); });
+        });
+        box.querySelectorAll('[data-del]').forEach(function (b) {
+            b.addEventListener('click', function () { removeItem(parseInt(b.dataset.del, 10)); });
+        });
+
+        $('checkout-btn').addEventListener('click', checkout);
+    }
+
+    async function loadCart() {
+        var r = await apiGet('/api/cart');
+        if (r.code === 0) {
+            applyCart(r.data);
+        } else if (r.code === 401) {
+            location.href = '/';
+        }
+    }
+
+    async function changeQty(pid, delta) {
+        var item = state.cart.items.find(function (x) { return x.product_id === pid; });
+        if (!item) return;
+
+        var qty = item.qty + delta;
+        var r = await apiPost('/api/cart/update', { product_id: pid, qty: qty });
+        if (r.code === 0) applyCart(r.data);
+        else toast(r.msg || '操作失败');
+    }
+
+    async function removeItem(pid) {
+        var r = await apiPost('/api/cart/remove', { product_id: pid });
+        if (r.code === 0) { applyCart(r.data); toast('已移除'); }
+        else toast(r.msg || '操作失败');
+    }
+
+    async function checkout() {
+        var btn = $('checkout-btn');
+        btn.disabled = true;
+        btn.textContent = '结算中…';
+
+        var r = await apiPost('/api/order/create', {});
+
+        if (r.code === 0) {
+            toast('下单成功，订单号 #' + r.data.order_id);
+            applyCart({ items: [], total: 0, count: 0 });
+            await loadProducts(state.keyword);
+            setTimeout(function () { show('orders'); }, 600);
+        } else {
+            toast(r.msg || '下单失败');
+            btn.disabled = false;
+            btn.textContent = '去结算';
+        }
+    }
+
+    /* ---------------- 订单 ---------------- */
+    function fmtTime(ts) {
+        var d = new Date(ts * 1000);
+        var pad = function (n) { return n < 10 ? '0' + n : n; };
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+               ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    }
+
+    function renderOrders(list) {
+        var box = $('order-box');
+
+        if (!list.length) {
+            box.innerHTML = '<div class="empty"><div class="big">📦</div>还没有订单</div>';
+            return;
+        }
+
+        box.innerHTML = list.map(function (o) {
+            var items = o.items.map(function (it) {
+                return '<div class="order-item">' +
+                           '<span>' + esc(it.name) + '<span class="q">x' + it.qty + '</span></span>' +
+                           '<span class="price">' + money(it.price * it.qty) + '</span>' +
+                       '</div>';
+            }).join('');
+
+            return '' +
+                '<div class="order">' +
+                    '<div class="order-head">' +
+                        '<span class="oid">订单 #' + o.id + '</span>' +
+                        '<span>' + fmtTime(o.created_at) + '</span>' +
+                        '<span class="tag">' + esc(o.status) + '</span>' +
+                        '<span style="margin-left:auto;color:var(--ink)">¥' + money(o.total) + '</span>' +
+                    '</div>' +
+                    '<div class="order-body">' + items + '</div>' +
+                '</div>';
+        }).join('');
+    }
+
+    async function loadOrders() {
+        var r = await apiGet('/api/orders');
+        if (r.code === 0) renderOrders(r.data.items);
+        else if (r.code === 401) location.href = '/';
+    }
+
+    /* ---------------- 启动 ---------------- */
+    async function boot() {
+        var r = await apiGet('/api/me');
+
+        if (r.code !== 0) { location.href = '/'; return; }
+
+        state.me = r.data;
+        $('user-nick').textContent = r.data.nickname || r.data.account;
+
+        $('logout-btn').addEventListener('click', async function () {
+            await apiPost('/api/logout', {});
+            location.href = '/';
+        });
+
+        /* 搜索：回车 / 点按钮 / 输入即搜（300ms 防抖） */
+        var timer = null;
+        var input = $('search-input');
+
+        $('search-btn').addEventListener('click', function () {
+            doSearch(input.value.trim());
+        });
+
+        $('clear-btn').addEventListener('click', function () {
+            doSearch('');
+            input.focus();
+        });
+
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                doSearch(input.value.trim());
+            }
+        });
+
+        input.addEventListener('input', function () {
+            clearTimeout(timer);
+            timer = setTimeout(function () { doSearch(input.value.trim()); }, 300);
+        });
+
+        await loadProducts('');
+        await loadCart();
+    }
+
+    boot();
+})();
+</script>
+</body>
+</html>

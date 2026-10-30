@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>搜索结果 · 简物</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/shop.css">
+</head>
+<body>
+
+<header class="topbar">
+    <div class="topbar-inner">
+        <a class="brand" href="/search.html">简<span>物</span></a>
+        <nav class="nav">
+            <a class="navlink" href="/search.html">搜索</a>
+            <a class="navlink" href="/shop.html">购物车 / 订单</a>
+        </nav>
+        <div class="topbar-right">
+            <form class="searchbar" id="mini-form" style="margin:0;max-width:260px">
+                <input type="search" id="mini-kw" placeholder="继续搜索…" autocomplete="off">
+            </form>
+            <span id="user-nick"></span>
+            <button class="btn btn-ghost btn-sm" id="logout-btn">退出</button>
+        </div>
+    </div>
+</header>
+
+<main class="wrap">
+    <div class="result-head">
+        <div>
+            <h1 id="head-title">全部商品</h1>
+            <div class="sub" id="head-sub">正在加载…</div>
+        </div>
+
+        <div class="sortbar" id="sortbar">
+            <button data-sort="">综合</button>
+            <button data-sort="price_asc">价格从低到高</button>
+            <button data-sort="price_desc">价格从高到低</button>
+            <button data-sort="hot">人气优先</button>
+        </div>
+    </div>
+
+    <div class="grid" id="list"></div>
+    <div class="pager hidden" id="pager">
+        <button id="prev">上一页</button>
+        <span id="page-info"></span>
+        <button id="next">下一页</button>
+    </div>
+
+    <div class="section-title hidden" id="similar-head">
+        <h2>同类商品</h2>
+        <span id="similar-sub"></span>
+    </div>
+    <div class="grid hidden" id="similar-grid"></div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+    'use strict';
+
+    var $ = function (id) { return document.getElementById(id); };
+
+    var PAGE_SIZE = 12;
+
+    var query = new URLSearchParams(location.search);
+    var state = {
+        kw: query.get('kw') || '',
+        cat: query.get('cat') || '',
+        sort: query.get('sort') || '',
+        page: parseInt(query.get('page') || '1', 10) || 1,
+        total: 0,
+        pages: 1
+    };
+
+    var toastTimer = null;
+    function toast(text) {
+        var el = $('toast');
+        el.textContent = text;
+        el.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () { el.classList.remove('show'); }, 1800);
+    }
+
+    async function apiGet(path) {
+        var res = await fetch(path, { credentials: 'same-origin' });
+        return res.json();
+    }
+
+    async function apiPost(path, body) {
+        var res = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify(body || {})
+        });
+        return res.json();
+    }
+
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function money(cents) {
+        return (cents / 100).toFixed(2);
+    }
+
+    /* 图片加载失败时淡出，不留破图 */
+    function picHtml(url) {
+        if (!url) return '<div class="noimg">暂无图片</div>';
+        return '<img src="' + esc(url) + '" alt="" loading="lazy" onerror="this.style.opacity=0">';
+    }
+
+    function cardHtml(p) {
+        var url = '/detail.html?id=' + p.id;
+        var meta = [p.brand, p.category].filter(Boolean).join(' · ');
+        var sold = p.stock <= 0;
+
+        return '' +
+            '<article class="card">' +
+                '<a class="pic" href="' + url + '">' + picHtml(p.thumb || p.image) + '</a>' +
+                '<div class="card-body">' +
+                    '<a class="card-name" href="' + url + '" style="text-decoration:none">' +
+                        esc(p.name) + '</a>' +
+                    '<div class="card-meta">' + esc(meta || '未分类') + '</div>' +
+                    '<div class="card-foot">' +
+                        '<div>' +
+                            '<div class="price">' + money(p.price) + '</div>' +
+                            '<div class="stock' + (sold ? ' out' : '') + '">' +
+                                (sold ? '已售罄' : '库存 ' + p.stock) +
+                            '</div>' +
+                        '</div>' +
+                        '<button class="btn btn-sm" data-add="' + p.id + '"' +
+                            (sold ? ' disabled' : '') + '>加入购物车</button>' +
+                    '</div>' +
+                '</div>' +
+            '</article>';
+    }
+
+    /* ---------------- 地址栏同步 ---------------- */
+    function syncUrl() {
+        var qs = [];
+        if (state.kw) qs.push('kw=' + encodeURIComponent(state.kw));
+        if (state.cat) qs.push('cat=' + encodeURIComponent(state.cat));
+        if (state.sort) qs.push('sort=' + encodeURIComponent(state.sort));
+        if (state.page > 1) qs.push('page=' + state.page);
+
+        history.replaceState(null, '', '/results.html' + (qs.length ? '?' + qs.join('&') : ''));
+    }
+
+    /* ---------------- 渲染 ---------------- */
+    function renderHead(data) {
+        var title, sub;
+
+        if (state.kw) {
+            title = '搜索：' + state.kw;
+            sub = '共找到 ' + data.total + ' 件商品';
+        } else if (state.cat) {
+            title = '分类：' + state.cat;
+            sub = '共 ' + data.total + ' 件商品';
+        } else {
+            title = '全部商品';
+            sub = '共 ' + data.total + ' 件商品';
+        }
+
+        $('head-title').textContent = title;
+        $('head-sub').textContent = sub;
+
+        document.querySelectorAll('#sortbar button').forEach(function (b) {
+            b.classList.toggle('active', (b.dataset.sort || '') === state.sort);
+        });
+    }
+
+    function renderEmpty() {
+        var tip = state.kw
+            ? '没有找到「' + esc(state.kw) + '」相关的商品'
+            : '这里暂时没有商品';
+
+        $('list').innerHTML =
+            '<div class="empty" style="grid-column:1/-1">' +
+                '<div class="big">🔍</div>' + tip +
+                '<div style="margin-top:18px">' +
+                    '<a class="btn btn-ghost btn-sm" href="/search.html">换个词试试</a>' +
+                '</div>' +
+            '</div>';
+    }
+
+    function renderList(items) {
+        if (!items.length) { renderEmpty(); return; }
+        $('list').innerHTML = items.map(cardHtml).join('');
+    }
+
+    function renderPager(data) {
+        state.pages = data.pages;
+
+        if (data.pages <= 1) {
+            $('pager').classList.add('hidden');
+            return;
+        }
+
+        $('pager').classList.remove('hidden');
+        $('page-info').textContent = '第 ' + data.page + ' / ' + data.pages + ' 页';
+        $('prev').disabled = data.page <= 1;
+        $('next').disabled = data.page >= data.pages;
+    }
+
+    /* ---------------- 数据 ---------------- */
+    async function load() {
+        var url = '/api/products?page=' + state.page + '&size=' + PAGE_SIZE;
+
+        if (state.kw) url += '&keyword=' + encodeURIComponent(state.kw);
+        if (state.cat) url += '&cat=' + encodeURIComponent(state.cat);
+        if (state.sort) url += '&sort=' + encodeURIComponent(state.sort);
+
+        var r = await apiGet(url);
+
+        if (r.code !== 0 || !r.data) {
+            $('head-sub').textContent = r.msg || '加载失败';
+            renderEmpty();
+            return;
+        }
+
+        state.total = r.data.total;
+
+        renderHead(r.data);
+        renderList(r.data.items || []);
+        renderPager(r.data);
+        loadSimilar(r.data.items || []);
+    }
+
+    /* 搜完之后，底下再推一排相关商品：
+       先找同分类，不够就找同品牌，再不够就推热门，保证这一栏不空 */
+    async function loadSimilar(items) {
+        var head = $('similar-head');
+        var grid = $('similar-grid');
+
+        head.classList.add('hidden');
+        grid.classList.add('hidden');
+        grid.innerHTML = '';
+
+        if (!items.length) return;
+
+        var shown = {};
+        items.forEach(function (p) { shown[p.id] = true; });
+
+        /* 结果里出现过的分类按次数排序，逐个试；某个分类没有“没展示过”的商品就换下一个 */
+        var freq = {};
+        var order = [];
+
+        items.forEach(function (p) {
+            if (!p.category) return;
+            if (freq[p.category] === undefined) {
+                freq[p.category] = 0;
+                order.push(p.category);
+            }
+            freq[p.category] += 1;
+        });
+
+        order.sort(function (a, b) { return freq[b] - freq[a]; });
+
+        var anchor = items[0];
+        var tries = [];
+
+        order.forEach(function (cat) {
+            tries.push({
+                q: '&cat=' + encodeURIComponent(cat),
+                label: '同为「' + cat + '」的其他商品'
+            });
+        });
+
+        if (anchor.brand) {
+            tries.push({
+                q: '&brand=' + encodeURIComponent(anchor.brand),
+                label: '「' + anchor.brand + '」品牌的其他商品'
+            });
+        }
+        tries.push({ q: '', label: '你可能还喜欢' });
+
+        for (var i = 0; i < tries.length; i++) {
+            var r = await apiGet('/api/products?size=12&sort=hot' + tries[i].q);
+            if (r.code !== 0 || !r.data) continue;
+
+            var others = (r.data.items || []).filter(function (p) {
+                return !shown[p.id];
+            }).slice(0, 4);
+
+            if (!others.length) continue;
+
+            $('similar-sub').textContent = tries[i].label;
+            grid.innerHTML = others.map(cardHtml).join('');
+            head.classList.remove('hidden');
+            grid.classList.remove('hidden');
+            return;
+        }
+    }
+
+    async function addToCart(id) {
+        var r = await apiPost('/api/cart/add', { product_id: id, qty: 1 });
+
+        if (r.code === 0) toast('已加入购物车');
+        else if (r.code === 401) location.href = '/';
+        else toast(r.msg || '操作失败');
+    }
+
+    function goPage(n) {
+        if (n < 1 || n > state.pages || n === state.page) return;
+        state.page = n;
+        syncUrl();
+        load();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    /* ---------------- 交互 ---------------- */
+    /* 结果卡片和同类卡片的加购按钮都用事件委托，重渲染后不用重新绑定 */
+    document.addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-add]');
+        if (!btn || btn.disabled) return;
+        e.preventDefault();
+        addToCart(parseInt(btn.dataset.add, 10));
+    });
+
+    $('sortbar').addEventListener('click', function (e) {
+        var btn = e.target.closest('button[data-sort]');
+        if (!btn) return;
+
+        state.sort = btn.dataset.sort || '';
+        state.page = 1;
+        syncUrl();
+        load();
+    });
+
+    $('prev').addEventListener('click', function () { goPage(state.page - 1); });
+    $('next').addEventListener('click', function () { goPage(state.page + 1); });
+
+    $('mini-form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var kw = $('mini-kw').value.trim();
+
+        state.kw = kw;
+        state.cat = '';
+        state.page = 1;
+        syncUrl();
+        load();
+    });
+
+    /* ---------------- 启动 ---------------- */
+    (async function boot() {
+        var me = await apiGet('/api/me');
+
+        if (me.code !== 0) { location.href = '/'; return; }
+
+        $('user-nick').textContent = me.data.nickname || me.data.account;
+        $('mini-kw').value = state.kw;
+
+        $('logout-btn').addEventListener('click', async function () {
+            await apiPost('/api/logout', {});
+            location.href = '/';
+        });
+
+        await load();
+    })();
+})();
+</script>
+</body>
+</html>
