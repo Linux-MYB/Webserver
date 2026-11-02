@@ -26,7 +26,7 @@
 </header>
 
 <main class="wrap">
-    <!-- 商品 -->
+
     <section id="view-products">
         <div class="page-head">
             <h1 id="product-title">全部商品</h1>
@@ -40,7 +40,6 @@
         <div class="grid" id="product-grid"></div>
     </section>
 
-    <!-- 购物车 -->
     <section id="view-cart" class="hidden">
         <div class="page-head">
             <h1>购物车</h1>
@@ -49,7 +48,6 @@
         <div id="cart-box"></div>
     </section>
 
-    <!-- 订单 -->
     <section id="view-orders" class="hidden">
         <div class="page-head">
             <h1>我的订单</h1>
@@ -108,7 +106,6 @@
         return res.json();
     }
 
-    /* ---------------- 视图切换 ---------------- */
     function show(view) {
         ['products', 'cart', 'orders'].forEach(function (v) {
             $('view-' + v).classList.toggle('hidden', v !== view);
@@ -124,7 +121,6 @@
         b.addEventListener('click', function () { show(b.dataset.view); });
     });
 
-    /* ---------------- 商品 ---------------- */
     function renderProducts(list) {
         var grid = $('product-grid');
 
@@ -215,7 +211,6 @@
         }
     }
 
-    /* ---------------- 购物车 ---------------- */
     function applyCart(data) {
         if (!data) return;
         state.cart = data;
@@ -325,7 +320,6 @@
         }
     }
 
-    /* ---------------- 订单 ---------------- */
     function fmtTime(ts) {
         var d = new Date(ts * 1000);
         var pad = function (n) { return n < 10 ? '0' + n : n; };
@@ -368,7 +362,6 @@
         else if (r.code === 401) location.href = '/';
     }
 
-    /* ---------------- 启动 ---------------- */
     async function boot() {
         var r = await apiGet('/api/me');
 
@@ -382,7 +375,6 @@
             location.href = '/';
         });
 
-        /* 搜索：回车 / 点按钮 / 输入即搜（300ms 防抖） */
         var timer = null;
         var input = $('search-input');
 

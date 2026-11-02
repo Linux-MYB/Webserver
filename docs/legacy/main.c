@@ -28,7 +28,6 @@ int CreateListenSocket(int port)
         return -1;
     }
 
-    /* 设置 SO_REUSEADDR，允许快速重启 */
     setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
     seraddr.sin_family = AF_INET;
@@ -59,7 +58,6 @@ int RecvHttpRequest(int confd, char *prevbuf, int len)
     ssize_t nret;
     ssize_t total = 0;
 
-    /* 循环接收直到遇到 \r\n\r\n 或缓冲区满 */
     while (total < len - 1)
     {
         nret = recv(confd, prevbuf + total, len - 1 - total, 0);
@@ -70,13 +68,13 @@ int RecvHttpRequest(int confd, char *prevbuf, int len)
         }
         else if (0 == nret)
         {
-            break; /* 对端关闭 */
+            break;
         }
         total += nret;
         prevbuf[total] = '\0';
         if (strstr(prevbuf, "\r\n\r\n") != NULL)
         {
-            break; /* 收到完整请求头 */
+            break;
         }
     }
     return total;
@@ -90,7 +88,6 @@ int SendHttpResponse(int confd, HttpRequest_t *pTmpRequest)
     ssize_t nret = 0;
     int header_len = 0;
 
-    /* 构造文件路径 */
     if (pTmpRequest->purl == NULL)
     {
         char badreq[] = "HTTP/1.1 400 Bad Request\r\n"
@@ -108,7 +105,6 @@ int SendHttpResponse(int confd, HttpRequest_t *pTmpRequest)
         snprintf(filename, sizeof(filename), ".%s", pTmpRequest->purl);
     }
 
-    /* 路径遍历检查 —— 在发送任何响应头之前 */
     if (strstr(filename, "..") != NULL)
     {
         char forbid[] = "HTTP/1.1 403 Forbidden\r\n"
@@ -119,7 +115,6 @@ int SendHttpResponse(int confd, HttpRequest_t *pTmpRequest)
         return -1;
     }
 
-    /* 尝试打开文件，先判断是否存在再发送 200 */
     fd = open(filename, O_RDONLY);
     if (-1 == fd)
     {
@@ -139,7 +134,6 @@ int SendHttpResponse(int confd, HttpRequest_t *pTmpRequest)
         return 0;
     }
 
-    /* 发送 200 OK 响应头（使用 strcat 避免重叠 sprintf 的 UB） */
     strcpy(tmpbuff, "HTTP/1.1 200 OK\r\n");
     strcat(tmpbuff, "Server: TinyServer\r\n");
     strcat(tmpbuff, "Content-Type: text/html; charset=utf-8\r\n");
@@ -155,7 +149,6 @@ int SendHttpResponse(int confd, HttpRequest_t *pTmpRequest)
         return -1;
     }
 
-    /* 发送文件内容 */
     while (1)
     {
         nret = read(fd, tmpbuff, sizeof(tmpbuff));
@@ -190,18 +183,11 @@ int ParseHttpRequest(char *prevbuff, HttpRequest_t *ptmpquest)
 
     if (ptmpquest->pmethod == NULL || ptmpquest->purl == NULL)
     {
-        return -1; /* 请求格式错误 */
+        return -1;
     }
     return 0;
 }
 
-/* ==================== 新增函数 ==================== */
-
-/*
- * 在缓冲区中逐字节查找 \r\n\r\n，返回请求体指针
- * 不能用 strstr，因为 ParseHttpRequest 里的 strtok 会插入 \0，
- * strstr 遇到 \0 就停了，找不到后面的 \r\n\r\n
- */
 char *FindBody(char *buf, int bufsize)
 {
     int i;
@@ -213,7 +199,6 @@ char *FindBody(char *buf, int bufsize)
     return NULL;
 }
 
-/* 从JSON字符串中提取指定键的值 */
 int JsonGetString(const char *json, const char *key, char *output, int outlen)
 {
     char pattern[64];
@@ -240,7 +225,6 @@ int JsonGetString(const char *json, const char *key, char *output, int outlen)
     return 0;
 }
 
-/* 密码加盐哈希 */
 void HashPassword(const char *password, char *output)
 {
     int salt = rand();
@@ -257,7 +241,6 @@ void HashPassword(const char *password, char *output)
     snprintf(output, 128, "%d:%lx", salt, hash);
 }
 
-/* 验证密码 */
 int VerifyPassword(const char *password, const char *stored_hash)
 {
     char salt_str[32];
@@ -288,7 +271,6 @@ int VerifyPassword(const char *password, const char *stored_hash)
     return strcmp(computed, stored_val) == 0;
 }
 
-/* 发送JSON响应 */
 void SendJsonResponse(int confd, int code, const char *message)
 {
     char body[256];
@@ -307,7 +289,6 @@ void SendJsonResponse(int confd, int code, const char *message)
     send(confd, body, blen, 0);
 }
 
-/* 发送带数据的JSON响应 */
 void SendJsonResponseWithData(int confd, int code, const char *message,
                                const char *key, const char *value)
 {
@@ -328,10 +309,6 @@ void SendJsonResponseWithData(int confd, int code, const char *message,
     send(confd, body, blen, 0);
 }
 
-/*
- * 处理注册
- * 直接接收 recvbuff，函数内部自己找请求体
- */
 int HandleRegister(int confd, char *recvbuff)
 {
     char account[64];
@@ -386,10 +363,6 @@ int HandleRegister(int confd, char *recvbuff)
     return 0;
 }
 
-/*
- * 处理登录
- * 直接接收 recvbuff，函数内部自己找请求体
- */
 int HandleLogin(int confd, char *recvbuff)
 {
     char account[64];
@@ -471,7 +444,7 @@ int main(void)
         if (-1 == confd)
         {
             perror("fail to accept");
-            continue; /* 不退出，继续等待下一个连接 */
+            continue;
         }
 
         RecvHttpRequest(confd, recvbuff, sizeof(recvbuff));
@@ -481,19 +454,19 @@ int main(void)
 
         if (ParseHttpRequest(recvbuff, &Tmpquest) == 0)
         {
-            /* POST /api/register → 注册 */
+
             if (strcmp(Tmpquest.pmethod, "POST") == 0 &&
                 strcmp(Tmpquest.purl, "/api/register") == 0)
             {
                 HandleRegister(confd, recvbuff);
             }
-            /* POST /api/login → 登录 */
+
             else if (strcmp(Tmpquest.pmethod, "POST") == 0 &&
                      strcmp(Tmpquest.purl, "/api/login") == 0)
             {
                 HandleLogin(confd, recvbuff);
             }
-            /* 其余走原来的文件服务 */
+
             else
             {
                 SendHttpResponse(confd, &Tmpquest);

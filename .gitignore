@@ -1,0 +1,9 @@
+src/*.o
+src/*.d
+jianwu
+
+jianwu.db
+jianwu.db-wal
+jianwu.db-shm
+
+www/images/

@@ -86,7 +86,6 @@
         return (cents / 100).toFixed(2);
     }
 
-    /* 详情页正文通常是长文本，按句子切成几段，读起来不累 */
     function paragraphs(text) {
         if (!text) return '';
 
@@ -101,7 +100,6 @@
         return chunks.map(function (c) { return '<p>' + esc(c) + '</p>'; }).join('');
     }
 
-    /* ---------------- 渲染 ---------------- */
     function render(p) {
         var imgs = (p.images && p.images.length) ? p.images.slice() : [];
         if (!imgs.length) {
@@ -172,7 +170,6 @@
         $('crumb-back').href = '/results.html' +
             (p.category ? '?cat=' + encodeURIComponent(p.category) : '');
 
-        /* 图集切换 */
         document.querySelectorAll('.thumbs img').forEach(function (t) {
             t.addEventListener('click', function () {
                 var i = parseInt(t.dataset.i, 10);
@@ -187,7 +184,6 @@
             });
         });
 
-        /* 数量加减 */
         var qtyNum = $('qty-num');
 
         function setQty(n) {
@@ -213,7 +209,6 @@
             btn.disabled = false;
         });
 
-        /* 详情正文 */
         if (p.description) {
             $('desc-body').innerHTML = paragraphs(p.description);
             $('desc-box').classList.remove('hidden');
@@ -222,7 +217,6 @@
         document.title = p.name + ' · 简物';
     }
 
-    /* ---------------- 启动 ---------------- */
     (async function boot() {
         var me = await apiGet('/api/me');
 

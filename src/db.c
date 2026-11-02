@@ -13,8 +13,6 @@
 static sqlite3       *g_db;
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 
-/* ==================== 基础设施 ==================== */
-
 static int db_exec(const char *sql)
 {
     char *err = NULL;
@@ -38,8 +36,6 @@ static void col_str(sqlite3_stmt *st, int col, char *out, size_t n)
     }
     snprintf(out, n, "%s", (const char *)t);
 }
-
-/* ==================== 打开 / 建表 ==================== */
 
 static const char *SCHEMA =
     "PRAGMA journal_mode=WAL;"
@@ -101,7 +97,6 @@ static const char *SCHEMA =
     "CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id, id DESC);"
     "CREATE INDEX IF NOT EXISTS idx_sessions_exp ON sessions(expires_at);";
 
-/* 老库升级：缺哪个字段补哪个（CREATE TABLE IF NOT EXISTS 不会改已有表） */
 static int column_exists(const char *table, const char *col)
 {
     sqlite3_stmt *st = NULL;
@@ -144,7 +139,6 @@ static void db_migrate(void)
         snprintf(sql, sizeof(sql), "ALTER TABLE products ADD COLUMN %s %s;",
                  EXTRA[i].name, EXTRA[i].def);
 
-        /* 并发启动时两个进程可能同时 ALTER，报"重复列"属正常，不当成错误 */
         if (sqlite3_exec(g_db, sql, NULL, NULL, NULL) != SQLITE_OK) {
             log_warn("补字段 %s 失败（可能已存在）", EXTRA[i].name);
         }
@@ -193,14 +187,11 @@ void db_close(void)
     pthread_mutex_unlock(&g_lock);
 }
 
-/* ==================== 从 ECShop 商品库导入 ==================== */
-
 static int is_space_byte(unsigned char c)
 {
     return c == ' ' || c == '\t' || c == '\r' || c == '\n';
 }
 
-/* 如果缓冲区正好截在半个汉字上，退回到这个字符的开头 */
 static void utf8_trim_tail(char *s, size_t *len)
 {
     size_t o = *len;
@@ -221,7 +212,6 @@ static void utf8_trim_tail(char *s, size_t *len)
     }
 }
 
-/* 商品详情在库里是 HTML，去掉标签、合并空白，只留纯文本 */
 static void html_to_text(const char *in, char *out, size_t outsz)
 {
     const char *p = in ? in : "";
@@ -287,12 +277,6 @@ static const char *SHOP_SELECT =
     " WHERE g.is_on_sale = 1 AND IFNULL(g.is_delete,0) = 0"
     " ORDER BY g.goods_id;";
 
-/*
- * 把 123.db 里的商品搬进本项目的 products 表。
- *
- * 用 ATTACH 直接读源库，商品 id 保持和源库一致（购物车、订单都靠这个 id 关联）。
- * 返回 0 表示导入成功，1 表示没有可用源库（调用方回退到示例数据）。
- */
 static int import_shop(const char *path)
 {
     sqlite3_stmt *sel = NULL, *ins = NULL;
@@ -351,9 +335,9 @@ static int import_shop(const char *path)
         sqlite3_bind_int64(ins, 1, sqlite3_column_int64(sel, 0));
         sqlite3_bind_text(ins, 2, (const char *)sqlite3_column_text(sel, 1), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(ins, 3, brief, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(ins, 4, sqlite3_column_int(sel, 6));   /* price */
-        sqlite3_bind_int(ins, 5, sqlite3_column_int(sel, 7));   /* market_price */
-        sqlite3_bind_int(ins, 6, sqlite3_column_int(sel, 5));   /* stock */
+        sqlite3_bind_int(ins, 4, sqlite3_column_int(sel, 6));
+        sqlite3_bind_int(ins, 5, sqlite3_column_int(sel, 7));
+        sqlite3_bind_int(ins, 6, sqlite3_column_int(sel, 5));
         sqlite3_bind_text(ins, 7, (const char *)sqlite3_column_text(sel, 3), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(ins, 8, (const char *)sqlite3_column_text(sel, 4), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(ins, 9, (const char *)sqlite3_column_text(sel, 2), -1, SQLITE_TRANSIENT);
@@ -369,7 +353,6 @@ static int import_shop(const char *path)
     sqlite3_finalize(ins);
     sqlite3_finalize(sel);
 
-    /* 图集：原库存的是相对路径，前面补 / 变成站点路径 */
     sqlite3_exec(g_db,
         "INSERT INTO product_images(product_id,url,sort)"
         " SELECT goods_id,"
@@ -397,7 +380,6 @@ void db_seed(const char *shop_db)
         sqlite3_finalize(st);
     }
 
-    /* 带商品编号的是从 123.db 导进来的真实商品，没有编号的是老版本示例数据 */
     if (sqlite3_prepare_v2(g_db,
             "SELECT COUNT(*) FROM products WHERE sn <> '';", -1, &st, NULL) == SQLITE_OK) {
         if (sqlite3_step(st) == SQLITE_ROW) real = (long)sqlite3_column_int64(st, 0);
@@ -406,11 +388,11 @@ void db_seed(const char *shop_db)
 
     if (count > 0 && real > 0) {
         pthread_mutex_unlock(&g_lock);
-        return;                       /* 已经是真实商品，不用动 */
+        return;
     }
 
     if (count > 0 && real == 0) {
-        /* 只剩下上一版写死的示例商品：清掉，其中购物车里的引用也一并清理 */
+
         log_warn("检测到旧版示例商品 %ld 条，清理后改为导入真实商品库", count);
 
         sqlite3_exec(g_db, "DELETE FROM cart_items;", NULL, NULL, NULL);
@@ -424,8 +406,6 @@ void db_seed(const char *shop_db)
 
     pthread_mutex_unlock(&g_lock);
 }
-
-/* ==================== 用户 ==================== */
 
 int db_user_create(const char *account, const char *hash, const char *nickname, long *uid)
 {
@@ -485,7 +465,7 @@ int db_user_auth(const char *account, const char *password, long *uid, char *nic
     if (sqlite3_step(st) != SQLITE_ROW) {
         sqlite3_finalize(st);
         pthread_mutex_unlock(&g_lock);
-        return 1;   /* 账号不存在 */
+        return 1;
     }
 
     id = (long)sqlite3_column_int64(st, 0);
@@ -495,7 +475,6 @@ int db_user_auth(const char *account, const char *password, long *uid, char *nic
     sqlite3_finalize(st);
     pthread_mutex_unlock(&g_lock);
 
-    /* 哈希计算放在锁外，避免阻塞其他请求 */
     if (!password_verify(password, hash)) return 2;
 
     if (uid) *uid = id;
@@ -530,8 +509,6 @@ int db_user_info(long uid, char *account, size_t alen, char *nick, size_t nlen)
     pthread_mutex_unlock(&g_lock);
     return 0;
 }
-
-/* ==================== 会话 ==================== */
 
 #define SESSION_TTL (7 * 24 * 3600)
 
@@ -615,8 +592,6 @@ void db_session_del(const char *token)
     pthread_mutex_unlock(&g_lock);
 }
 
-/* ==================== 商品 ==================== */
-
 #define PRODUCT_COLS \
     "id,name,subtitle,emoji,price,market_price,stock,category,brand,sn,thumb,image,clicks,description"
 
@@ -638,10 +613,6 @@ static void read_product(sqlite3_stmt *st, product_t *p)
     col_str(st, 13, p->description, sizeof(p->description));
 }
 
-/*
- * 拼 WHERE 子句：kw 占 5 个占位符（名称 / 卖点 / 品牌 / 分类 / 编号），
- * cat、brand 各 1 个。返回值是占位符个数，绑定顺序必须和这里一致。
- */
 static int build_where(const char *kw, const char *cat, const char *brand,
                        char *where, size_t wsz)
 {
@@ -688,11 +659,11 @@ static void bind_filters(sqlite3_stmt *st, const char *kw, const char *cat,
     if (kw && *kw) {
         char like[160];
         snprintf(like, sizeof(like), "%%%s%%", kw);
-        sqlite3_bind_text(st, i++, like, -1, SQLITE_TRANSIENT);   /* name */
-        sqlite3_bind_text(st, i++, like, -1, SQLITE_TRANSIENT);   /* subtitle */
-        sqlite3_bind_text(st, i++, like, -1, SQLITE_TRANSIENT);   /* brand */
-        sqlite3_bind_text(st, i++, like, -1, SQLITE_TRANSIENT);   /* category */
-        sqlite3_bind_text(st, i++, like, -1, SQLITE_TRANSIENT);   /* sn */
+        sqlite3_bind_text(st, i++, like, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, i++, like, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, i++, like, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, i++, like, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, i++, like, -1, SQLITE_TRANSIENT);
     }
     if (cat && *cat)     sqlite3_bind_text(st, i++, cat, -1, SQLITE_TRANSIENT);
     if (brand && *brand) sqlite3_bind_text(st, i++, brand, -1, SQLITE_TRANSIENT);
@@ -721,7 +692,6 @@ int db_product_list(const char *kw, const char *cat, const char *brand,
 
     pthread_mutex_lock(&g_lock);
 
-    /* 先数总数，前端要用它算页数 */
     if (total) {
         snprintf(sql, sizeof(sql), "SELECT COUNT(*) FROM products%s;", where);
 
@@ -780,7 +750,7 @@ int db_product_get(long id, product_t *p)
     if (sqlite3_step(st) != SQLITE_ROW) {
         sqlite3_finalize(st);
         pthread_mutex_unlock(&g_lock);
-        return 1;  /* 不存在 */
+        return 1;
     }
 
     read_product(st, p);
@@ -847,8 +817,6 @@ int db_category_list(category_t *arr, int max, int *n)
     return 0;
 }
 
-/* ==================== 购物车 ==================== */
-
 int db_cart_list(long uid, cart_item_t *arr, int max, int *n, int *total)
 {
     sqlite3_stmt *st = NULL;
@@ -900,7 +868,6 @@ int db_cart_add(long uid, long pid, int qty, int *err)
 
     pthread_mutex_lock(&g_lock);
 
-    /* 商品是否存在、库存多少 */
     rc = sqlite3_prepare_v2(g_db, "SELECT stock FROM products WHERE id=?;", -1, &st, NULL);
     if (rc != SQLITE_OK) {
         pthread_mutex_unlock(&g_lock);
@@ -916,7 +883,6 @@ int db_cart_add(long uid, long pid, int qty, int *err)
     stock = sqlite3_column_int(st, 0);
     sqlite3_finalize(st);
 
-    /* 当前数量 */
     rc = sqlite3_prepare_v2(g_db,
             "SELECT qty FROM cart_items WHERE user_id=? AND product_id=?;", -1, &st, NULL);
     if (rc != SQLITE_OK) {
@@ -1040,8 +1006,6 @@ int db_cart_clear(long uid)
 
     return (rc == SQLITE_DONE) ? 0 : -1;
 }
-
-/* ==================== 订单 ==================== */
 
 int db_order_create(long uid, long *order_id, int *total, int *err)
 {

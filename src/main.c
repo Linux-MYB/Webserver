@@ -1,11 +1,3 @@
-/*
- * main.c —— 简物 server 入口
- *
- *   一个连接一个线程，简单直接；
- *   SQLite 用 FULLMUTEX + 内部锁，多线程访问安全。
- *
- *   用法: ./jianwu [端口] [数据库路径] [商品库路径]
- */
 #include "api.h"
 #include "db.h"
 #include "http.h"
@@ -13,6 +5,7 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <pthread.h>
 #include <signal.h>
@@ -20,57 +13,84 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
 
+#define WORKER_NUM 8
+#define QUEUE_SIZE 1024
+#define MAX_EVENTS 64
+
 static volatile sig_atomic_t g_run = 1;
 static int g_listen_fd = -1;
+static int g_epfd = -1;
 
-static void on_signal(int sig)
+static pthread_t g_workers[WORKER_NUM];
+static int g_worker_cnt = 0;
+
+static int g_queue[QUEUE_SIZE];
+static int g_head = 0, g_tail = 0, g_count = 0;
+static pthread_mutex_t g_q_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  g_q_cond = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t  g_q_room = PTHREAD_COND_INITIALIZER;
+
+static void queue_push(int fd)
 {
-    (void)sig;
-    g_run = 0;
-    if (g_listen_fd >= 0) shutdown(g_listen_fd, SHUT_RDWR);
+    pthread_mutex_lock(&g_q_lock);
+
+    while (g_count == QUEUE_SIZE && g_run) {
+        pthread_cond_wait(&g_q_room, &g_q_lock);
+    }
+
+    if (!g_run) {
+        pthread_mutex_unlock(&g_q_lock);
+        close(fd);
+        return;
+    }
+
+    g_queue[g_tail] = fd;
+    g_tail = (g_tail + 1) % QUEUE_SIZE;
+    g_count++;
+
+    pthread_cond_signal(&g_q_cond);
+    pthread_mutex_unlock(&g_q_lock);
 }
 
-static int create_server(int port)
+static int queue_pop(void)
 {
     int fd;
-    int opt = 1;
-    struct sockaddr_in addr;
 
-    fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) {
-        log_err("socket 失败: %s", strerror(errno));
+    pthread_mutex_lock(&g_q_lock);
+
+    while (g_count == 0 && g_run) {
+        pthread_cond_wait(&g_q_cond, &g_q_lock);
+    }
+
+    if (g_count == 0) {
+        pthread_mutex_unlock(&g_q_lock);
         return -1;
     }
 
-    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    fd = g_queue[g_head];
+    g_head = (g_head + 1) % QUEUE_SIZE;
+    g_count--;
 
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t)port);
-    addr.sin_addr.s_addr = INADDR_ANY;
-
-    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        log_err("bind %d 失败: %s", port, strerror(errno));
-        close(fd);
-        return -1;
-    }
-
-    if (listen(fd, 64) < 0) {
-        log_err("listen 失败: %s", strerror(errno));
-        close(fd);
-        return -1;
-    }
-
+    pthread_cond_signal(&g_q_room);
+    pthread_mutex_unlock(&g_q_lock);
     return fd;
 }
 
-static void *worker(void *arg)
+static void queue_wake_all(void)
 {
-    int fd = (int)(intptr_t)arg;
+    pthread_mutex_lock(&g_q_lock);
+    pthread_cond_broadcast(&g_q_cond);
+    pthread_cond_broadcast(&g_q_room);
+    pthread_mutex_unlock(&g_q_lock);
+}
+
+static void handle_conn(int fd)
+{
     http_request_t req;
     struct timeval tv;
 
@@ -94,7 +114,67 @@ static void *worker(void *arg)
     }
 
     close(fd);
+}
+
+static void *worker(void *arg)
+{
+    (void)arg;
+
+    for (;;) {
+        int fd = queue_pop();
+        if (fd < 0) break;
+        handle_conn(fd);
+    }
+
     return NULL;
+}
+
+static void on_signal(int sig)
+{
+    (void)sig;
+    g_run = 0;
+    if (g_listen_fd >= 0) shutdown(g_listen_fd, SHUT_RDWR);
+    queue_wake_all();
+}
+
+static int create_server(int port)
+{
+    int fd;
+    int opt = 1;
+    struct sockaddr_in addr;
+
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        log_err("socket 失败: %s", strerror(errno));
+        return -1;
+    }
+
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    if (fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK) < 0) {
+        log_err("设置非阻塞失败: %s", strerror(errno));
+        close(fd);
+        return -1;
+    }
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    addr.sin_addr.s_addr = INADDR_ANY;
+
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        log_err("bind %d 失败: %s", port, strerror(errno));
+        close(fd);
+        return -1;
+    }
+
+    if (listen(fd, 128) < 0) {
+        log_err("listen 失败: %s", strerror(errno));
+        close(fd);
+        return -1;
+    }
+
+    return fd;
 }
 
 int main(int argc, char **argv)
@@ -102,6 +182,8 @@ int main(int argc, char **argv)
     int port = 8080;
     const char *dbpath = "jianwu.db";
     const char *shopdb = "data/123.db";
+    struct epoll_event ev, events[MAX_EVENTS];
+    int i;
 
     if (argc > 1) port = atoi(argv[1]);
     if (argc > 2) dbpath = argv[2];
@@ -123,28 +205,70 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    log_info("简物 server 已启动: http://127.0.0.1:%d  (db=%s)", port, dbpath);
-
-    while (g_run) {
-        int fd = accept(g_listen_fd, NULL, NULL);
-        pthread_t th;
-
-        if (fd < 0) {
-            if (errno == EINTR) continue;
-            if (!g_run) break;
-            log_warn("accept 失败: %s", strerror(errno));
-            continue;
-        }
-
-        if (pthread_create(&th, NULL, worker, (void *)(intptr_t)fd) == 0) {
-            pthread_detach(th);
+    for (i = 0; i < WORKER_NUM; i++) {
+        if (pthread_create(&g_workers[i], NULL, worker, NULL) == 0) {
+            g_worker_cnt++;
         } else {
-            log_warn("创建线程失败，丢弃连接");
-            close(fd);
+            log_warn("创建工作线程失败");
         }
     }
 
+    g_epfd = epoll_create1(0);
+    if (g_epfd < 0) {
+        log_err("epoll_create1 失败: %s", strerror(errno));
+        close(g_listen_fd);
+        db_close();
+        return 1;
+    }
+
+    memset(&ev, 0, sizeof(ev));
+    ev.events = EPOLLIN;
+    ev.data.fd = g_listen_fd;
+
+    if (epoll_ctl(g_epfd, EPOLL_CTL_ADD, g_listen_fd, &ev) < 0) {
+        log_err("epoll_ctl 失败: %s", strerror(errno));
+        close(g_epfd);
+        close(g_listen_fd);
+        db_close();
+        return 1;
+    }
+
+    log_info("简物 server 已启动: http://127.0.0.1:%d  (db=%s, epoll + %d 线程)",
+             port, dbpath, WORKER_NUM);
+
+    while (g_run) {
+        int n = epoll_wait(g_epfd, events, MAX_EVENTS, 1000);
+
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            log_warn("epoll_wait 失败: %s", strerror(errno));
+            break;
+        }
+
+        for (i = 0; i < n; i++) {
+            if (events[i].data.fd != g_listen_fd) continue;
+
+            for (;;) {
+                int cfd = accept(g_listen_fd, NULL, NULL);
+
+                if (cfd < 0) {
+                    if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+                    if (errno == EINTR) continue;
+                    break;
+                }
+
+                queue_push(cfd);
+            }
+        }
+    }
+
+    if (g_epfd >= 0) close(g_epfd);
     if (g_listen_fd >= 0) close(g_listen_fd);
+
+    queue_wake_all();
+    for (i = 0; i < g_worker_cnt; i++) {
+        pthread_join(g_workers[i], NULL);
+    }
 
     db_close();
     log_info("已退出");

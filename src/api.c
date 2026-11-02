@@ -8,8 +8,6 @@
 #include <string.h>
 #include <time.h>
 
-/* ==================== 工具 ==================== */
-
 static int is_post(const http_request_t *req)
 {
     return strcmp(req->method, "POST") == 0;
@@ -46,7 +44,6 @@ static int valid_account(const char *s)
     return 1;
 }
 
-/* 去掉首尾空白，避免「手机 」这种带空格的搜索词查不到东西 */
 static void trim_inplace(char *s)
 {
     char *p = s;
@@ -58,8 +55,6 @@ static void trim_inplace(char *s)
     n = strlen(s);
     while (n > 0 && (s[n - 1] == ' ' || s[n - 1] == '\t')) s[--n] = '\0';
 }
-
-/* ==================== 账号相关 ==================== */
 
 static void handle_register(http_request_t *req)
 {
@@ -177,8 +172,6 @@ static void handle_me(http_request_t *req, long uid)
     http_json(req, 0, "ok", data);
 }
 
-/* ==================== 商品 ==================== */
-
 static void product_to_json(strbuf_t *sb, const product_t *p)
 {
     char name[256], sub[320], emoji[32], cat[96], brand[96], sn[48];
@@ -287,7 +280,6 @@ static void handle_product(http_request_t *req)
     }
     sb_putc(&imgs, ']');
 
-    /* 商品字段已经是一个完整对象，去掉结尾的 } 再接图集 */
     sb_init(&obj);
     product_to_json(&obj, &p);
     if (obj.len > 0) {
@@ -335,8 +327,6 @@ static void handle_categories(http_request_t *req)
     sb_free(&data);
     sb_free(&arr);
 }
-
-/* ==================== 购物车 ==================== */
 
 static void cart_to_json(strbuf_t *data, long uid)
 {
@@ -448,8 +438,6 @@ static void handle_cart_remove(http_request_t *req, long uid)
     sb_free(&data);
 }
 
-/* ==================== 订单 ==================== */
-
 static void handle_order_create(http_request_t *req, long uid)
 {
     long oid = 0;
@@ -520,8 +508,6 @@ static void handle_orders(http_request_t *req, long uid)
     sb_free(&arr);
 }
 
-/* ==================== 路由 ==================== */
-
 int api_dispatch(http_request_t *req)
 {
     long uid;
@@ -529,7 +515,6 @@ int api_dispatch(http_request_t *req)
 
     if (strncmp(p, "/api/", 5) != 0) return 0;
 
-    /* ---- 无需登录 ---- */
     if (strcmp(p, "/api/register") == 0) {
         if (!is_post(req)) { http_json(req, 405, "只支持 POST", NULL); return 1; }
         handle_register(req);
@@ -562,7 +547,6 @@ int api_dispatch(http_request_t *req)
         return 1;
     }
 
-    /* ---- 需要登录 ---- */
     uid = auth_uid(req);
 
     if (strcmp(p, "/api/me") == 0) {

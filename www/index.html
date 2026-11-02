@@ -44,7 +44,6 @@
     .terms { text-align: center; font-size: 12px; color: var(--gray); margin-top: 26px; line-height: 1.8; }
     .terms a { text-decoration: underline; }
 
-    /* 已登录提示条：只是提示，不挡住下面的登录/注册 */
     .session-bar {
         display: flex;
         align-items: center;
@@ -76,12 +75,11 @@
 <body>
 
 <div class="auth">
-    <!-- 一级页面 · 未登录：登录 / 注册 -->
+
     <div class="auth-card" id="auth-box">
         <div class="logo">简<span>物</span></div>
         <p class="subtitle">回归生活的本味</p>
 
-        <!-- 已登录时显示，不影响下面的登录/注册表单 -->
         <div class="session-bar hidden" id="session-bar">
             <span id="session-text"></span>
             <span class="session-actions">
@@ -148,7 +146,6 @@
         return res.json();
     }
 
-    /* ---------------- 登录 / 注册 ---------------- */
     var msgEl = document.getElementById('msg');
 
     function showMsg(text, ok) {
@@ -229,7 +226,6 @@
         btn.textContent = '注 册';
     });
 
-    /* ---------------- 注销 ---------------- */
     document.getElementById('logout-btn').addEventListener('click', async function () {
         var btn = document.getElementById('logout-btn');
 
@@ -241,11 +237,9 @@
         showMsg('已注销，可以换个账号登录', true);
     });
 
-    /* ---------------- 启动 ---------------- */
     (async function boot() {
         document.getElementById('login-account').focus();
 
-        /* 有会话时只在顶部提示一句，登录表单照常显示，方便切换账号 */
         try {
             var r = await apiGet('/api/me');
 
@@ -256,7 +250,7 @@
                     '当前已登录：' + who + '（' + r.data.account + '）';
                 bar.classList.remove('hidden');
             }
-        } catch (err) { /* 服务没启动时只显示登录表单 */ }
+        } catch (err) {  }
     })();
 })();
 </script>

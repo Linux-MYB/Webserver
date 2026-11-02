@@ -121,7 +121,6 @@
             '</article>';
     }
 
-    /* ---------------- 搜索提交 ---------------- */
     function gotoResults(params) {
         var qs = [];
         Object.keys(params).forEach(function (k) {
@@ -137,12 +136,10 @@
         gotoResults({ kw: kw });
     });
 
-    /* ---------------- 热门词 ---------------- */
     $('hot-chips').innerHTML = HOT.map(function (w) {
         return '<a class="chip" href="/results.html?kw=' + encodeURIComponent(w) + '">' + esc(w) + '</a>';
     }).join('');
 
-    /* ---------------- 分类 ---------------- */
     async function loadCategories() {
         var r = await apiGet('/api/categories');
         if (r.code !== 0 || !r.data) return;
@@ -161,7 +158,6 @@
         }).join('');
     }
 
-    /* ---------------- 推荐商品 ---------------- */
     async function loadRecommended() {
         var r = await apiGet('/api/products?sort=hot&size=8');
 
@@ -177,7 +173,6 @@
         $('rec-grid').innerHTML = items.map(cardHtml).join('');
     }
 
-    /* ---------------- 登录态 ---------------- */
     async function boot() {
         var r = await apiGet('/api/me');
 

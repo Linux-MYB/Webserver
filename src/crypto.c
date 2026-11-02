@@ -10,8 +10,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-/* ==================== SHA-256 ==================== */
-
 #define ROTR32(x, n) (((x) >> (n)) | ((x) << (32 - (n))))
 
 static const uint32_t K256[64] = {
@@ -35,7 +33,7 @@ static const uint32_t K256[64] = {
 
 typedef struct {
     uint32_t h[8];
-    uint64_t total;          /* 已处理字节数 */
+    uint64_t total;
     uint8_t  buf[64];
     size_t   buflen;
 } sha256_ctx_t;
@@ -129,7 +127,6 @@ static void sha256_final(sha256_ctx_t *ctx, uint8_t out[SHA256_LEN])
     size_t padlen;
     int i;
 
-    /* 0x80 + 0..63 个 0 + 8 字节长度 */
     pad[0] = 0x80;
     memset(pad + 1, 0, sizeof(pad) - 1);
 
@@ -157,76 +154,6 @@ void sha256(const void *data, size_t len, unsigned char out[SHA256_LEN])
     sha256_update(&ctx, data, len);
     sha256_final(&ctx, out);
 }
-
-/* ==================== HMAC-SHA256 ==================== */
-
-void hmac_sha256(const void *key, size_t key_len,
-                 const void *msg, size_t msg_len,
-                 unsigned char out[SHA256_LEN])
-{
-    uint8_t k[64];
-    uint8_t ipad[64];
-    uint8_t opad[64];
-    uint8_t inner[SHA256_LEN];
-    sha256_ctx_t ctx;
-    size_t i;
-
-    memset(k, 0, sizeof(k));
-
-    if (key_len > 64) {
-        sha256(key, key_len, k);
-    } else if (key_len) {
-        memcpy(k, key, key_len);
-    }
-
-    for (i = 0; i < 64; i++) {
-        ipad[i] = (uint8_t)(k[i] ^ 0x36);
-        opad[i] = (uint8_t)(k[i] ^ 0x5C);
-    }
-
-    sha256_init(&ctx);
-    sha256_update(&ctx, ipad, 64);
-    sha256_update(&ctx, msg, msg_len);
-    sha256_final(&ctx, inner);
-
-    sha256_init(&ctx);
-    sha256_update(&ctx, opad, 64);
-    sha256_update(&ctx, inner, SHA256_LEN);
-    sha256_final(&ctx, out);
-}
-
-/* ==================== PBKDF2 ==================== */
-
-void pbkdf2_sha256(const char *password, const unsigned char *salt, size_t salt_len,
-                   int iterations, unsigned char out[SHA256_LEN])
-{
-    uint8_t u[SHA256_LEN];
-    uint8_t t[SHA256_LEN];
-    uint8_t block[256];
-    size_t plen = strlen(password);
-    int i, j;
-
-    if (salt_len + 4 > sizeof(block)) salt_len = sizeof(block) - 4;
-
-    /* dkLen = 32 = hLen，所以只需要一块 */
-    memcpy(block, salt, salt_len);
-    block[salt_len + 0] = 0;
-    block[salt_len + 1] = 0;
-    block[salt_len + 2] = 0;
-    block[salt_len + 3] = 1;
-
-    hmac_sha256(password, plen, block, salt_len + 4, u);
-    memcpy(t, u, SHA256_LEN);
-
-    for (i = 1; i < iterations; i++) {
-        hmac_sha256(password, plen, u, SHA256_LEN, u);
-        for (j = 0; j < SHA256_LEN; j++) t[j] ^= u[j];
-    }
-
-    memcpy(out, t, SHA256_LEN);
-}
-
-/* ==================== 随机数 ==================== */
 
 int random_bytes(void *buf, size_t len)
 {
@@ -262,66 +189,36 @@ int random_hex(size_t nbytes, char *out, size_t outsz)
     return 0;
 }
 
-/* ==================== 密码 ==================== */
-
-#define PBKDF2_ITER 10000
-
 int password_hash(const char *password, char *out, size_t outsz)
 {
-    unsigned char salt[16];
     unsigned char dk[SHA256_LEN];
-    char salt_hex[33];
-    char hash_hex[65];
+    char hex[65];
     int n;
 
-    if (random_bytes(salt, sizeof(salt)) != 0) return -1;
+    if (!password) return -1;
 
-    pbkdf2_sha256(password, salt, sizeof(salt), PBKDF2_ITER, dk);
-    hex_encode(salt, sizeof(salt), salt_hex);
-    hex_encode(dk, sizeof(dk), hash_hex);
+    sha256(password, strlen(password), dk);
+    hex_encode(dk, sizeof(dk), hex);
 
-    n = snprintf(out, outsz, "pbkdf2-sha256$%d$%s$%s",
-                 PBKDF2_ITER, salt_hex, hash_hex);
+    n = snprintf(out, outsz, "%s", hex);
     return (n > 0 && (size_t)n < outsz) ? 0 : -1;
 }
 
 int password_verify(const char *password, const char *stored)
 {
-    char tmp[256];
-    char *save = NULL;
-    char *algo, *iter_s, *salt_s, *hash_s;
-    unsigned char salt[32];
-    unsigned char calc[SHA256_LEN];
-    char calc_hex[65];
-    int iter, salt_len;
-    unsigned int diff = 0;
+    unsigned char dk[SHA256_LEN];
+    char hex[65];
     size_t i;
+    unsigned int diff = 0;
 
-    if (!password || !stored || strlen(stored) >= sizeof(tmp)) return 0;
-    strcpy(tmp, stored);
+    if (!password || !stored) return 0;
+    if (strlen(stored) != 64) return 0;
 
-    algo   = strtok_r(tmp, "$", &save);
-    iter_s = strtok_r(NULL, "$", &save);
-    salt_s = strtok_r(NULL, "$", &save);
-    hash_s = strtok_r(NULL, "$", &save);
+    sha256(password, strlen(password), dk);
+    hex_encode(dk, sizeof(dk), hex);
 
-    if (!algo || !iter_s || !salt_s || !hash_s) return 0;
-    if (strcmp(algo, "pbkdf2-sha256") != 0) return 0;
-
-    iter = atoi(iter_s);
-    if (iter < 1 || iter > 1000000) return 0;
-
-    salt_len = hex_decode(salt_s, salt, sizeof(salt));
-    if (salt_len <= 0) return 0;
-
-    if (strlen(hash_s) != 64) return 0;
-
-    pbkdf2_sha256(password, salt, (size_t)salt_len, iter, calc);
-    hex_encode(calc, sizeof(calc), calc_hex);
-
-    /* 常数时间比较 */
     for (i = 0; i < 64; i++) {
-        diff |= (unsigned int)((unsigned char)calc_hex[i] ^ (unsigned char)hash_s[i]);
+        diff |= (unsigned int)((unsigned char)hex[i] ^ (unsigned char)stored[i]);
     }
 
     return diff == 0;

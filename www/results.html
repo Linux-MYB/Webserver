@@ -109,7 +109,6 @@
         return (cents / 100).toFixed(2);
     }
 
-    /* 图片加载失败时淡出，不留破图 */
     function picHtml(url) {
         if (!url) return '<div class="noimg">暂无图片</div>';
         return '<img src="' + esc(url) + '" alt="" loading="lazy" onerror="this.style.opacity=0">';
@@ -141,7 +140,6 @@
             '</article>';
     }
 
-    /* ---------------- 地址栏同步 ---------------- */
     function syncUrl() {
         var qs = [];
         if (state.kw) qs.push('kw=' + encodeURIComponent(state.kw));
@@ -152,7 +150,6 @@
         history.replaceState(null, '', '/results.html' + (qs.length ? '?' + qs.join('&') : ''));
     }
 
-    /* ---------------- 渲染 ---------------- */
     function renderHead(data) {
         var title, sub;
 
@@ -208,7 +205,6 @@
         $('next').disabled = data.page >= data.pages;
     }
 
-    /* ---------------- 数据 ---------------- */
     async function load() {
         var url = '/api/products?page=' + state.page + '&size=' + PAGE_SIZE;
 
@@ -232,8 +228,6 @@
         loadSimilar(r.data.items || []);
     }
 
-    /* 搜完之后，底下再推一排相关商品：
-       先找同分类，不够就找同品牌，再不够就推热门，保证这一栏不空 */
     async function loadSimilar(items) {
         var head = $('similar-head');
         var grid = $('similar-grid');
@@ -247,7 +241,6 @@
         var shown = {};
         items.forEach(function (p) { shown[p.id] = true; });
 
-        /* 结果里出现过的分类按次数排序，逐个试；某个分类没有“没展示过”的商品就换下一个 */
         var freq = {};
         var order = [];
 
@@ -314,8 +307,6 @@
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    /* ---------------- 交互 ---------------- */
-    /* 结果卡片和同类卡片的加购按钮都用事件委托，重渲染后不用重新绑定 */
     document.addEventListener('click', function (e) {
         var btn = e.target.closest('[data-add]');
         if (!btn || btn.disabled) return;
@@ -347,7 +338,6 @@
         load();
     });
 
-    /* ---------------- 启动 ---------------- */
     (async function boot() {
         var me = await apiGet('/api/me');
 

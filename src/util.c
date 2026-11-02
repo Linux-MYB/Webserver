@@ -7,8 +7,6 @@
 #include <string.h>
 #include <time.h>
 
-/* ==================== 日志 ==================== */
-
 static void log_out(const char *lvl, const char *fmt, va_list ap)
 {
     char tbuf[32];
@@ -47,8 +45,6 @@ void log_err(const char *fmt, ...)
     log_out("ERROR", fmt, ap);
     va_end(ap);
 }
-
-/* ==================== strbuf ==================== */
 
 void sb_init(strbuf_t *sb)
 {
@@ -126,8 +122,6 @@ char *sb_cstr(strbuf_t *sb)
 {
     return sb->buf ? sb->buf : (char *)"";
 }
-
-/* ==================== URL / HEX / JSON ==================== */
 
 static int hexval(char c)
 {
@@ -221,10 +215,6 @@ void json_escape(const char *in, char *out, size_t outsz)
     out[o] = '\0';
 }
 
-/*
- * 找 "key" 后面的值起点。
- * 前面必须是 { , 或空白，避免 "mykey" 误匹配 "key"
- */
 static const char *find_value(const char *json, const char *key)
 {
     char pat[64];
@@ -307,8 +297,6 @@ int json_get_long(const char *json, const char *key, long *out)
     *out = v;
     return 0;
 }
-
-/* ==================== MIME ==================== */
 
 const char *mime_type(const char *path)
 {

@@ -15,8 +15,6 @@
 #define MAX_HEADER   (32 * 1024)
 #define MAX_BODY     (1024 * 1024)
 
-/* ==================== 底层收发 ==================== */
-
 static int write_all(int fd, const void *buf, size_t len)
 {
     const char *p = (const char *)buf;
@@ -33,8 +31,6 @@ static int write_all(int fd, const void *buf, size_t len)
     }
     return 0;
 }
-
-/* ==================== 请求解析 ==================== */
 
 static char *find_header_end(char *buf, size_t len)
 {
@@ -67,13 +63,12 @@ int http_read_request(int fd, http_request_t *req)
     buf = (char *)malloc(cap + 1);
     if (!buf) return -1;
 
-    /* 1. 读到 \r\n\r\n 为止 */
     for (;;) {
         ssize_t n;
 
         if (len >= cap) {
             free(buf);
-            return -1;   /* 头部太长 */
+            return -1;
         }
 
         n = recv(fd, buf + len, cap - len, 0);
@@ -94,11 +89,9 @@ int http_read_request(int fd, http_request_t *req)
         if (hdrend) break;
     }
 
-    /* 2. 拆请求行 + 头部，注意先算出 body 起点 */
     {
         size_t header_len = (size_t)(hdrend - buf) + 4;
 
-        /* 逐行解析：把头部单独截断（body 部分稍后单独拷贝） */
         char *head = (char *)malloc(header_len + 1);
         if (!head) { free(buf); return -1; }
         memcpy(head, buf, header_len);
@@ -122,7 +115,6 @@ int http_read_request(int fd, http_request_t *req)
         }
         free(head);
 
-        /* 3. 请求体：可能还没收全，继续收 */
         if (content_length > 0) {
             size_t avail = len - header_len;
             size_t need  = (size_t)content_length;
@@ -158,7 +150,6 @@ int http_read_request(int fd, http_request_t *req)
         }
     }
 
-    /* 4. 拆 path / query */
     {
         char *qm = strchr(target, '?');
         char raw_path[512];
@@ -184,8 +175,6 @@ void http_free_request(http_request_t *req)
     req->body = NULL;
     req->body_len = 0;
 }
-
-/* ==================== 参数 / Cookie ==================== */
 
 static int parse_kv(const char *s, const char *key, char *out, size_t outsz)
 {
@@ -275,8 +264,6 @@ int http_cookie(const http_request_t *req, const char *name, char *out, size_t o
     return -1;
 }
 
-/* ==================== 响应 ==================== */
-
 static const char *status_text(int code)
 {
     switch (code) {
@@ -353,8 +340,6 @@ void http_text(http_request_t *req, int status, const char *text)
     write_all(req->fd, head, (size_t)n);
     if (blen) write_all(req->fd, text, blen);
 }
-
-/* ==================== 静态文件 ==================== */
 
 int http_serve_static(http_request_t *req)
 {
